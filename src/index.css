@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+/* Custom theme colors for Phoenix Real Estate Quiz */
+@theme {
+  /* Primary Colors */
+  --color-terracotta: #E07A5F;
+  --color-terracotta-dark: #C4684F;
+  --color-terracotta-light: #E99D88;
+
+  /* Secondary Colors */
+  --color-sage: #81B29A;
+  --color-sage-dark: #6A9580;
+  --color-sage-light: #A3C9B5;
+
+  /* Neutral Colors */
+  --color-sand: #F4F1DE;
+  --color-sand-dark: #E8E4CA;
+  --color-sand-light: #FAF9F2;
+
+  /* Accent Color */
+  --color-navy: #3D405B;
+  --color-navy-light: #545778;
+
+  /* Additional colors */
+  --color-sunset: #F2CC8F;
+  --color-desert-rose: #D4A5A5;
+}
+
+/* Base styles */
+body {
+  @apply bg-sand text-navy antialiased;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* Custom utilities */
+@layer utilities {
+  .text-shadow {
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+
+  .text-shadow-lg {
+    text-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  }
+}
