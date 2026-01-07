@@ -73,10 +73,16 @@ function App() {
   };
 
   // Handle lead form submission
-  const handleLeadSubmit = (contactInfo) => {
+  const handleLeadSubmit = async (contactInfo) => {
     // Generate and save lead data
     const leadData = generateLeadData(answers, contactInfo);
-    saveLead(leadData);
+
+    try {
+      await saveLead(leadData);
+    } catch (error) {
+      console.error('Error saving lead:', error);
+      // Continue to show results even if save fails
+    }
 
     // Show results
     setFadeIn(false);

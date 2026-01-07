@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { getLeads, filterLeads, downloadCSV, getLeadStats, deleteLead } from '../utils/storage';
+import { getLeads, filterLeads, downloadCSV, getLeadStats, deleteLead, isUsingSupabase } from '../utils/storage';
 import { neighborhoods } from '../data/neighborhoods';
 
 function AdminDashboard({ onBack }) {
   const [leads, setLeads] = useState([]);
   const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
     temperature: '',
     neighborhood: '',
@@ -18,13 +19,24 @@ function AdminDashboard({ onBack }) {
     loadData();
   }, []);
 
-  const loadData = () => {
-    setLeads(getLeads());
-    setStats(getLeadStats());
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [leadsData, statsData] = await Promise.all([
+        getLeads(),
+        getLeadStats()
+      ]);
+      setLeads(leadsData);
+      setStats(statsData);
+    } catch (error) {
+      console.error('Error loading data:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Apply filters
-  const handleFilterChange = (key, value) => {
+  const handleFilterChange = async (key, value) => {
     const newFilters = { ...filters, [key]: value };
     setFilters(newFilters);
 
@@ -33,22 +45,33 @@ function AdminDashboard({ onBack }) {
       Object.entries(newFilters).filter(([_, v]) => v !== '')
     );
 
-    if (Object.keys(activeFilters).length > 0) {
-      setLeads(filterLeads(activeFilters));
-    } else {
-      setLeads(getLeads());
+    try {
+      if (Object.keys(activeFilters).length > 0) {
+        const filtered = await filterLeads(activeFilters);
+        setLeads(filtered);
+      } else {
+        const allLeads = await getLeads();
+        setLeads(allLeads);
+      }
+    } catch (error) {
+      console.error('Error filtering leads:', error);
     }
   };
 
   // Reset filters
-  const resetFilters = () => {
+  const resetFilters = async () => {
     setFilters({
       temperature: '',
       neighborhood: '',
       startDate: '',
       endDate: ''
     });
-    setLeads(getLeads());
+    try {
+      const allLeads = await getLeads();
+      setLeads(allLeads);
+    } catch (error) {
+      console.error('Error resetting filters:', error);
+    }
   };
 
   // Export to CSV
@@ -57,11 +80,15 @@ function AdminDashboard({ onBack }) {
   };
 
   // Delete lead
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     if (window.confirm('Are you sure you want to delete this lead?')) {
-      deleteLead(id);
-      loadData();
-      setSelectedLead(null);
+      try {
+        await deleteLead(id);
+        await loadData();
+        setSelectedLead(null);
+      } catch (error) {
+        console.error('Error deleting lead:', error);
+      }
     }
   };
 
@@ -89,7 +116,14 @@ function AdminDashboard({ onBack }) {
             </button>
             <div>
               <h1 className="text-xl font-bold text-navy">Lead Dashboard</h1>
-              <p className="text-sm text-navy/60">Phoenix Neighborhood Quiz</p>
+              <p className="text-sm text-navy/60">
+                Phoenix Neighborhood Quiz
+                {isUsingSupabase() && (
+                  <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                    Supabase Connected
+                  </span>
+                )}
+              </p>
             </div>
           </div>
           <button
@@ -103,170 +137,180 @@ function AdminDashboard({ onBack }) {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 py-6">
-        {/* Stats Cards */}
-        {stats && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <div className="bg-white rounded-xl p-4 shadow-sm">
-              <p className="text-sm text-navy/60">Total Leads</p>
-              <p className="text-3xl font-bold text-navy">{stats.total}</p>
-            </div>
-            <div className="bg-white rounded-xl p-4 shadow-sm">
-              <p className="text-sm text-navy/60">Hot Leads</p>
-              <p className="text-3xl font-bold text-orange-500">
-                {(stats.byTemperature.hot || 0) + (stats.byTemperature['on-fire'] || 0)}
-              </p>
-            </div>
-            <div className="bg-white rounded-xl p-4 shadow-sm">
-              <p className="text-sm text-navy/60">Avg Budget Score</p>
-              <p className="text-3xl font-bold text-sage">{stats.averageBudgetScore}/5</p>
-            </div>
-            <div className="bg-white rounded-xl p-4 shadow-sm">
-              <p className="text-sm text-navy/60">Avg Timeline Score</p>
-              <p className="text-3xl font-bold text-terracotta">{stats.averageTimelineScore}/5</p>
-            </div>
+        {/* Loading state */}
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-terracotta"></div>
+            <span className="ml-3 text-navy/60">Loading leads...</span>
           </div>
+        ) : (
+          <>
+            {/* Stats Cards */}
+            {stats && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div className="bg-white rounded-xl p-4 shadow-sm">
+                  <p className="text-sm text-navy/60">Total Leads</p>
+                  <p className="text-3xl font-bold text-navy">{stats.total}</p>
+                </div>
+                <div className="bg-white rounded-xl p-4 shadow-sm">
+                  <p className="text-sm text-navy/60">Hot Leads</p>
+                  <p className="text-3xl font-bold text-orange-500">
+                    {(stats.byTemperature.hot || 0) + (stats.byTemperature['on-fire'] || 0)}
+                  </p>
+                </div>
+                <div className="bg-white rounded-xl p-4 shadow-sm">
+                  <p className="text-sm text-navy/60">Avg Budget Score</p>
+                  <p className="text-3xl font-bold text-sage">{stats.averageBudgetScore}/5</p>
+                </div>
+                <div className="bg-white rounded-xl p-4 shadow-sm">
+                  <p className="text-sm text-navy/60">Avg Timeline Score</p>
+                  <p className="text-3xl font-bold text-terracotta">{stats.averageTimelineScore}/5</p>
+                </div>
+              </div>
+            )}
+
+            {/* Filters */}
+            <div className="bg-white rounded-xl p-4 shadow-sm mb-6">
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="flex-1 min-w-[150px]">
+                  <label className="block text-xs text-navy/60 mb-1">Temperature</label>
+                  <select
+                    value={filters.temperature}
+                    onChange={(e) => handleFilterChange('temperature', e.target.value)}
+                    className="w-full px-3 py-2 border border-sand-dark rounded-lg bg-white text-navy text-sm"
+                  >
+                    <option value="">All</option>
+                    <option value="cold">Cold</option>
+                    <option value="warm">Warm</option>
+                    <option value="hot">Hot</option>
+                    <option value="on-fire">On Fire</option>
+                  </select>
+                </div>
+
+                <div className="flex-1 min-w-[150px]">
+                  <label className="block text-xs text-navy/60 mb-1">Neighborhood</label>
+                  <select
+                    value={filters.neighborhood}
+                    onChange={(e) => handleFilterChange('neighborhood', e.target.value)}
+                    className="w-full px-3 py-2 border border-sand-dark rounded-lg bg-white text-navy text-sm"
+                  >
+                    <option value="">All</option>
+                    {Object.values(neighborhoods).map((n) => (
+                      <option key={n.id} value={n.id}>{n.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex-1 min-w-[150px]">
+                  <label className="block text-xs text-navy/60 mb-1">From Date</label>
+                  <input
+                    type="date"
+                    value={filters.startDate}
+                    onChange={(e) => handleFilterChange('startDate', e.target.value)}
+                    className="w-full px-3 py-2 border border-sand-dark rounded-lg bg-white text-navy text-sm"
+                  />
+                </div>
+
+                <div className="flex-1 min-w-[150px]">
+                  <label className="block text-xs text-navy/60 mb-1">To Date</label>
+                  <input
+                    type="date"
+                    value={filters.endDate}
+                    onChange={(e) => handleFilterChange('endDate', e.target.value)}
+                    className="w-full px-3 py-2 border border-sand-dark rounded-lg bg-white text-navy text-sm"
+                  />
+                </div>
+
+                <button
+                  onClick={resetFilters}
+                  className="px-4 py-2 text-navy/60 hover:text-navy text-sm transition-colors"
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+
+            {/* Leads Table */}
+            <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+              {leads.length === 0 ? (
+                <div className="p-12 text-center">
+                  <span className="text-4xl mb-4 block">📭</span>
+                  <h3 className="text-lg font-medium text-navy mb-2">No leads yet</h3>
+                  <p className="text-navy/60">Complete the quiz to generate leads</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-sand-light border-b border-sand-dark">
+                      <tr>
+                        <th className="text-left px-4 py-3 text-sm font-medium text-navy/70">Date</th>
+                        <th className="text-left px-4 py-3 text-sm font-medium text-navy/70">Name</th>
+                        <th className="text-left px-4 py-3 text-sm font-medium text-navy/70">Email</th>
+                        <th className="text-left px-4 py-3 text-sm font-medium text-navy/70">Phone</th>
+                        <th className="text-left px-4 py-3 text-sm font-medium text-navy/70">Temp</th>
+                        <th className="text-left px-4 py-3 text-sm font-medium text-navy/70">Budget</th>
+                        <th className="text-left px-4 py-3 text-sm font-medium text-navy/70">Match</th>
+                        <th className="text-left px-4 py-3 text-sm font-medium text-navy/70">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-sand-dark">
+                      {leads.map((lead) => (
+                        <tr key={lead.id} className="hover:bg-sand-light/50 transition-colors">
+                          <td className="px-4 py-3 text-sm text-navy/80">
+                            {new Date(lead.timestamp).toLocaleDateString()}
+                          </td>
+                          <td className="px-4 py-3 text-sm font-medium text-navy">
+                            {lead.contact.firstName}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-navy/80">
+                            {lead.contact.email}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-navy/80">
+                            {lead.contact.phone || '-'}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${tempColors[lead.scores.leadTemperature]}`}>
+                              {lead.scores.leadTemperature}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-navy/80">
+                            {lead.scores.budgetRange}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-navy/80">
+                            {neighborhoods[lead.neighborhoodMatch]?.name || lead.neighborhoodMatch}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => setSelectedLead(lead)}
+                                className="p-1 text-navy/40 hover:text-navy transition-colors"
+                                title="View details"
+                              >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                </svg>
+                              </button>
+                              <button
+                                onClick={() => handleDelete(lead.id)}
+                                className="p-1 text-navy/40 hover:text-red-500 transition-colors"
+                                title="Delete"
+                              >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </>
         )}
-
-        {/* Filters */}
-        <div className="bg-white rounded-xl p-4 shadow-sm mb-6">
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex-1 min-w-[150px]">
-              <label className="block text-xs text-navy/60 mb-1">Temperature</label>
-              <select
-                value={filters.temperature}
-                onChange={(e) => handleFilterChange('temperature', e.target.value)}
-                className="w-full px-3 py-2 border border-sand-dark rounded-lg bg-white text-navy text-sm"
-              >
-                <option value="">All</option>
-                <option value="cold">Cold</option>
-                <option value="warm">Warm</option>
-                <option value="hot">Hot</option>
-                <option value="on-fire">On Fire</option>
-              </select>
-            </div>
-
-            <div className="flex-1 min-w-[150px]">
-              <label className="block text-xs text-navy/60 mb-1">Neighborhood</label>
-              <select
-                value={filters.neighborhood}
-                onChange={(e) => handleFilterChange('neighborhood', e.target.value)}
-                className="w-full px-3 py-2 border border-sand-dark rounded-lg bg-white text-navy text-sm"
-              >
-                <option value="">All</option>
-                {Object.values(neighborhoods).map((n) => (
-                  <option key={n.id} value={n.id}>{n.name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex-1 min-w-[150px]">
-              <label className="block text-xs text-navy/60 mb-1">From Date</label>
-              <input
-                type="date"
-                value={filters.startDate}
-                onChange={(e) => handleFilterChange('startDate', e.target.value)}
-                className="w-full px-3 py-2 border border-sand-dark rounded-lg bg-white text-navy text-sm"
-              />
-            </div>
-
-            <div className="flex-1 min-w-[150px]">
-              <label className="block text-xs text-navy/60 mb-1">To Date</label>
-              <input
-                type="date"
-                value={filters.endDate}
-                onChange={(e) => handleFilterChange('endDate', e.target.value)}
-                className="w-full px-3 py-2 border border-sand-dark rounded-lg bg-white text-navy text-sm"
-              />
-            </div>
-
-            <button
-              onClick={resetFilters}
-              className="px-4 py-2 text-navy/60 hover:text-navy text-sm transition-colors"
-            >
-              Reset
-            </button>
-          </div>
-        </div>
-
-        {/* Leads Table */}
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-          {leads.length === 0 ? (
-            <div className="p-12 text-center">
-              <span className="text-4xl mb-4 block">📭</span>
-              <h3 className="text-lg font-medium text-navy mb-2">No leads yet</h3>
-              <p className="text-navy/60">Complete the quiz to generate leads</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-sand-light border-b border-sand-dark">
-                  <tr>
-                    <th className="text-left px-4 py-3 text-sm font-medium text-navy/70">Date</th>
-                    <th className="text-left px-4 py-3 text-sm font-medium text-navy/70">Name</th>
-                    <th className="text-left px-4 py-3 text-sm font-medium text-navy/70">Email</th>
-                    <th className="text-left px-4 py-3 text-sm font-medium text-navy/70">Phone</th>
-                    <th className="text-left px-4 py-3 text-sm font-medium text-navy/70">Temp</th>
-                    <th className="text-left px-4 py-3 text-sm font-medium text-navy/70">Budget</th>
-                    <th className="text-left px-4 py-3 text-sm font-medium text-navy/70">Match</th>
-                    <th className="text-left px-4 py-3 text-sm font-medium text-navy/70">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-sand-dark">
-                  {leads.map((lead) => (
-                    <tr key={lead.id} className="hover:bg-sand-light/50 transition-colors">
-                      <td className="px-4 py-3 text-sm text-navy/80">
-                        {new Date(lead.timestamp).toLocaleDateString()}
-                      </td>
-                      <td className="px-4 py-3 text-sm font-medium text-navy">
-                        {lead.contact.firstName}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-navy/80">
-                        {lead.contact.email}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-navy/80">
-                        {lead.contact.phone || '-'}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${tempColors[lead.scores.leadTemperature]}`}>
-                          {lead.scores.leadTemperature}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-navy/80">
-                        {lead.scores.budgetRange}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-navy/80">
-                        {neighborhoods[lead.neighborhoodMatch]?.name || lead.neighborhoodMatch}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => setSelectedLead(lead)}
-                            className="p-1 text-navy/40 hover:text-navy transition-colors"
-                            title="View details"
-                          >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                            </svg>
-                          </button>
-                          <button
-                            onClick={() => handleDelete(lead.id)}
-                            className="p-1 text-navy/40 hover:text-red-500 transition-colors"
-                            title="Delete"
-                          >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Lead Detail Modal */}
@@ -321,7 +365,7 @@ function AdminDashboard({ onBack }) {
                 <div className="bg-sand-light rounded-lg p-4">
                   <h4 className="font-semibold text-navy mb-2">Quiz Answers</h4>
                   <div className="space-y-2 text-sm">
-                    {selectedLead.answers.map((answer, idx) => (
+                    {selectedLead.answers && selectedLead.answers.map((answer, idx) => (
                       <p key={idx}>
                         <span className="text-navy/60">Q{answer.questionId}:</span> {answer.answerText}
                       </p>
